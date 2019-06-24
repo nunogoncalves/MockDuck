@@ -103,8 +103,13 @@ final class MockRequestResponse: Codable {
             hashData.append(urlData)
         }
 
-        if let body = normalizedRequest.httpBody {
-            hashData.append(body)
+        if let body = normalizedRequest.httpBody ?? normalizedRequest.bodyStreamData {
+            if let json = try? JSONSerialization.jsonObject(with: body, options: []) as! [String: Any]{
+                hashData.append(sort(dictionary: json).data(using: .utf8)!)
+            } else {
+
+                hashData.append(body)
+            }
         }
 
         if !hashData.isEmpty {
@@ -141,4 +146,44 @@ final class MockRequestResponse: Codable {
         requestWrapper = try container.decode(MockRequest.self, forKey: .requestWrapper)
         responseWrapper = try container.decodeIfPresent(MockResponse.self, forKey: .responseWrapper)
     }
+}
+
+internal extension URLRequest {
+
+    var bodyStreamData: Data? {
+
+        guard let bodyStream = self.httpBodyStream else { return nil }
+
+        bodyStream.open()
+
+        // Will read 16 chars per iteration. Can use bigger buffer if needed
+        let bufferSize: Int = 16
+
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+
+        var dat = Data()
+
+        while bodyStream.hasBytesAvailable {
+
+            let readDat = bodyStream.read(buffer, maxLength: bufferSize)
+            dat.append(buffer, count: readDat)
+        }
+
+        buffer.deallocate()
+
+        bodyStream.close()
+
+        return dat
+    }
+}
+
+func sort(dictionary: [String: Any]) -> String {
+    let sorted = dictionary.keys.sorted().reduce("") { (acc, iteration) -> String in
+        if let json = dictionary[iteration] as? [String: Any] {
+            return acc.appending("\(iteration):\(sort(dictionary: json)),")
+        } else {
+            return acc.appending("\(iteration):\(dictionary[iteration]!),")
+        }
+    }
+    return String(sorted.dropLast())
 }
